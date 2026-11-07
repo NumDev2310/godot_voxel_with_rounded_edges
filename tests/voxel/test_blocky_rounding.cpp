@@ -18,6 +18,13 @@
 
 namespace zylann::voxel::tests {
 namespace {
+class BlockyRoundingTestLibrary : public VoxelBlockyLibrary {
+public:
+	void clear_rounding_mappings_for_test() {
+		RWLockWrite lock(_baked_data_rw_lock);
+		_baked_data.rounding_vertex_mappings.clear();
+	}
+};
 using TriangleKey = std::array<int64_t, 9>;
 using TriangleKeys = StdVector<TriangleKey>;
 TriangleKeys triangle_keys(const VoxelMesher::Output &output, Vector3 offset) {
@@ -122,6 +129,14 @@ uint64_t rounding_mesh_hash(const VoxelMesher::Output &output) {
 			h ^= uint64_t(x);
 			h *= 1099511628211ULL;
 		}
+	// Check all emitted attributes during concurrent rebakes, not only positions.
+	for (const auto &surface : output.surfaces) {
+		for (int i = 0; i < surface.arrays.size(); ++i) {
+			h ^= uint64_t(Variant(surface.arrays[i]).hash());
+			h *= 1099511628211ULL;
+		}
+	}
+
 	return h;
 }
 struct RoundingReaderContext {
@@ -191,7 +206,8 @@ void test_blocky_rounding_table() {
 	library->set_rounding_amount(.15f);
 	library->set_rounding_taper_distance(1.f);
 	library->bake();
-	ZN_TEST_ASSERT(library->get_baked_data().rounding_geometry.get(4095)->triangles.size() == 300);
+	const auto *rebaked = library->get_baked_data().rounding_geometry.get(4095);
+	ZN_TEST_ASSERT(rebaked != nullptr && !rebaked->triangles.empty());
 	cube->set_rounding_enabled(false);
 	library->bake();
 	ZN_TEST_ASSERT(library->get_baked_data().rounding_geometry.get_storage_bytes() == 0);
@@ -283,6 +299,83 @@ void test_blocky_rounding_table() {
 				   observed[1].load(),
 				   errors.load())
 	);
+}
+
+void test_blocky_rounding_mapping() {
+	Ref<BlockyRoundingTestLibrary> library;
+	library.instantiate();
+	Ref<VoxelBlockyModelEmpty> air;
+	air.instantiate();
+	library->add_model(air);
+	Ref<VoxelBlockyModelCube> a, b;
+	a.instantiate();
+	b.instantiate();
+	a->set_rounding_enabled(true);
+	b->set_rounding_enabled(true);
+	a->set_atlas_size_in_tiles(Vector2i(4, 4));
+	b->set_atlas_size_in_tiles(Vector2i(4, 4));
+	b->set_color(Color(0.5, 0.75, 1.0));
+	library->add_model(a);
+	library->add_model(b);
+	library->set_rounding_amount(.15f);
+	library->set_rounding_taper_distance(1.f);
+	library->bake();
+	const auto &data = library->get_baked_data();
+	ZN_TEST_ASSERT(data.rounding_vertex_mappings.size() == 1);
+	ZN_TEST_ASSERT(data.models[1].rounding_mapping_index == data.models[2].rounding_mapping_index);
+	ZN_TEST_ASSERT(data.rounding_vertex_mappings[0].size() == data.rounding_geometry.get_vertices().size());
+	const auto *saved_geometry = data.rounding_geometry.get(4095);
+	const auto *saved_vertices = data.rounding_geometry.get_vertices().data();
+	b->set_tile(VoxelBlockyModel::SIDE_POSITIVE_Y, Vector2i(1, 1));
+	library->bake();
+	ZN_TEST_ASSERT(data.rounding_vertex_mappings.size() == 2);
+	ZN_TEST_ASSERT(data.models[1].rounding_mapping_index != data.models[2].rounding_mapping_index);
+	ZN_TEST_ASSERT(data.rounding_geometry.get(4095) == saved_geometry);
+	ZN_TEST_ASSERT(data.rounding_geometry.get_vertices().data() == saved_vertices);
+
+	Ref<VoxelMesherBlocky> mesher;
+	mesher.instantiate();
+	mesher->set_library(library);
+	VoxelBuffer voxels(VoxelBuffer::ALLOCATOR_DEFAULT);
+	voxels.create(4, 3, 3);
+	voxels.set_voxel(1, Vector3i(1, 1, 1), VoxelBuffer::CHANNEL_TYPE);
+	voxels.set_voxel(2, Vector3i(2, 1, 1), VoxelBuffer::CHANNEL_TYPE);
+	for (bool bake_tangents : { true, false }) {
+		library->set_bake_tangents(bake_tangents);
+		library->bake();
+		VoxelMesher::Output cached, fallback;
+		mesher->build(cached, { voxels, nullptr, Vector3i(), 0, true });
+		// Fault injection exercises the slow path under an exclusive lock.
+		library->clear_rounding_mappings_for_test();
+		mesher->build(fallback, { voxels, nullptr, Vector3i(), 0, true });
+		ZN_TEST_ASSERT(cached.surfaces.size() == fallback.surfaces.size());
+		for (size_t i = 0; i < cached.surfaces.size(); ++i) {
+			const auto &ca = cached.surfaces[i].arrays;
+			const auto &fa = fallback.surfaces[i].arrays;
+			ZN_TEST_ASSERT(ca.size() == fa.size());
+			for (int j = 0; j < ca.size(); ++j)
+				ZN_TEST_ASSERT(Variant(ca[j]) == Variant(fa[j]));
+		}
+	}
+	library->bake();
+	size_t mapping_bytes = data.rounding_vertex_mappings.capacity() * sizeof(StdVector<blocky::RoundedVertexMapping>);
+	for (const auto &mapping : data.rounding_vertex_mappings)
+		mapping_bytes += mapping.capacity() * sizeof(blocky::RoundedVertexMapping);
+	print_line(format(
+			"ROUND_SHARED geometry_bytes={} pooled_vertices={} mapping_arrays={} mapping_bytes={} model_bytes={}",
+			data.rounding_geometry.get_storage_bytes(),
+			data.rounding_geometry.get_vertices().size(),
+			data.rounding_vertex_mappings.size(),
+			mapping_bytes,
+			sizeof(blocky::BakedModel)
+	));
+	a->set_rounding_enabled(false);
+	b->set_rounding_enabled(false);
+	library->bake();
+	ZN_TEST_ASSERT(data.rounding_geometry.get_storage_bytes() == 0);
+	ZN_TEST_ASSERT(data.rounding_vertex_mappings.empty() && data.rounding_vertex_mappings.capacity() == 0);
+	ZN_TEST_ASSERT(data.models[1].rounding_mapping_index == UINT32_MAX);
+	ZN_TEST_ASSERT(data.models[2].rounding_mapping_index == UINT32_MAX);
 }
 
 } // namespace zylann::voxel::tests

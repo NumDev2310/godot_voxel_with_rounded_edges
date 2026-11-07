@@ -3,6 +3,7 @@
 #include "../../meshers/blocky/blocky_round_geometry_table.h"
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -16,12 +17,14 @@ static void check(bool b, const char *message) {
 static double elapsed(Clock::time_point t) {
 	return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
 }
-static bool same(const Mesh &a, const Mesh &b) {
+static bool same(const IndexedMesh &a, const Mesh &b, const GeometryTable &table) {
 	if (a.valid != b.valid || a.vertices.size() != b.vertices.size() || a.triangles.size() != b.triangles.size())
 		return false;
 	for (size_t i = 0; i < a.vertices.size(); ++i) {
-		const auto &x = a.vertices[i], &y = b.vertices[i];
-		if (x.p != y.p || x.n != y.n || x.source_p != y.source_p || x.face != y.face)
+		const auto &x = table.get_vertices()[a.vertices[i]], &y = b.vertices[i];
+		if (std::memcmp(x.p.data(), y.p.data(), sizeof(V)) != 0 ||
+			std::memcmp(x.n.data(), y.n.data(), sizeof(V)) != 0 ||
+			std::memcmp(x.source_p.data(), y.source_p.data(), sizeof(V)) != 0 || x.face != y.face)
 			return false;
 	}
 	for (size_t i = 0; i < a.triangles.size(); ++i)
@@ -74,14 +77,14 @@ int main() {
 					check(table.update(settings, true), "changed settings not rebuilt");
 					const double bake_ms = elapsed(started);
 					check(table.get_entries().size() == 857, "incomplete baked table");
-					const Mesh *saved = table.get(4095);
+					const IndexedMesh *saved = table.get(4095);
 					check(saved != nullptr, "isolated cube missing");
 					check(!table.update(settings, true) && table.get(4095) == saved,
 						  "identical settings rebuilt geometry");
 					for (uint64_t key : keys) {
 						check(supports_connected_edges(key), "reachable key uses fallback generator");
-						const Mesh *m = table.get(key);
-						check(m != nullptr && same(*m, generate(key, settings)),
+						const IndexedMesh *m = table.get(key);
+						check(m != nullptr && same(*m, generate(key, settings), table),
 							  "baked geometry differs from direct generator");
 						++comparisons;
 					}
@@ -94,6 +97,10 @@ int main() {
 				}
 		const Settings current{ double(.15f), 1, 0 };
 		table.update(current, true);
+		size_t referenced_vertices = 0;
+		for (const auto &entry : table.get_entries())
+			referenced_vertices += entry.mesh.vertices.size();
+		check(table.get_vertices().size() < referenced_vertices, "vertex records were not shared across shapes");
 		std::array<std::thread, 4> threads;
 		std::atomic<size_t> reads{ 0 };
 		for (auto &thread : threads)

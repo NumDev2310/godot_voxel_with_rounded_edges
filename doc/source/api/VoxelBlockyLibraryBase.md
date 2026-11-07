@@ -49,11 +49,11 @@ enum **RoundingTaperProfile**:
 
 ### [float](https://docs.godotengine.org/en/stable/classes/class_float.html)<span id="i_rounding_amount"></span> **rounding_amount** = 0.1
 
-Shared bevel radius in voxel units, clamped to 0 through 0.25. Values below 0.001 are treated as zero to keep generated triangles stable at floating-point mesh precision. Zero disables rounding geometry. Only models with [VoxelBlockyModel.rounding_enabled](VoxelBlockyModel.md#i_rounding_enabled) enabled and supported cube geometry are affected. Bake the library and remesh affected terrain after changing this at runtime.
+Nominal bevel radius shared by enabled models in this library, in voxel units, clamped to 0 through 0.25. The local radius is reduced near exposed three-edge corners and tapered contacts. Values below 0.001 are treated as zero to keep generated triangles stable at floating-point mesh precision. Zero disables rounding geometry. Only models with [VoxelBlockyModel.rounding_enabled](VoxelBlockyModel.md#i_rounding_enabled) enabled and supported cube geometry are affected. Bake the library and remesh affected terrain after changing this at runtime.
 
 ### [float](https://docs.godotengine.org/en/stable/classes/class_float.html)<span id="i_rounding_taper_distance"></span> **rounding_taper_distance** = 0.4
 
-Distance in voxel units along an edge over which its bevel transitions to full width, clamped to 0.01 through 1.0. Values 0.4, 0.6, 0.8 and 1.0 mean 40%, 60%, 80% and 100% of one voxel edge. This setting is independent of the bevel radius. Bake the library and remesh affected terrain after changing this at runtime.
+Distance in voxel units used by each transition from a square contact toward the nominal bevel radius, clamped to 0.01 through 1.0. Transitions from opposite ends multiply where they overlap, so an edge may not reach the nominal radius. Values 0.4, 0.6, 0.8 and 1.0 mean 40%, 60%, 80% and 100% of one voxel edge. This setting is independent of the bevel radius. Bake the library and remesh affected terrain after changing this at runtime.
 
 ### [RoundingTaperProfile](VoxelBlockyLibraryBase.md#enumerations)<span id="i_rounding_taper_profile"></span> **rounding_taper_profile** = ROUNDING_TAPER_LINEAR (0)
 

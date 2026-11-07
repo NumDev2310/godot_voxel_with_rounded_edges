@@ -60,11 +60,11 @@ enum **Side**:
 
 ### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_rounding_affects_neighbors"></span> **rounding_affects_neighbors** = true
 
-If false, this model is treated as air only when determining the rounded edges of neighboring blocks. Useful for transparent grass tufts, shrubs and mesh-based water. This does not enable rounding on the model itself or change its rendering, face culling, or collision settings. Defaults to true. Bake the library and remesh after changing it.
+If false, this model is treated as air only when determining the rounded edges of neighboring blocks. This allows transparent grass tufts, shrubs and mesh-based water to leave neighboring bevels exposed. This does not enable rounding on the model itself or change its rendering, face culling, or collision settings. Bake the library and remesh after changing it.
 
 ### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_rounding_enabled"></span> **rounding_enabled** = false
 
-Opts this model into neighborhood-aware rounding using the shared settings of [VoxelBlockyLibraryBase](VoxelBlockyLibraryBase.md). Disabled by default. Supported models are full unit cubes, including imported meshes with two triangles per face. UV coordinates must match at vertices shared by the two triangles of each face; different cube faces may use separate UV regions and materials. Unsupported shapes retain their original geometry and report a warning when baked.
+Opts this model into neighborhood-aware rounding using the shared settings of [VoxelBlockyLibraryBase](VoxelBlockyLibraryBase.md). Disabled by default. Supported models are full unit cubes, including imported meshes with two triangles per face and each face contained in one mesh surface. Side cutouts must be disabled. Procedural [VoxelBlockyModelFluid](VoxelBlockyModelFluid.md) models are not rounded and are treated as air for neighboring rounding. UV coordinates must match at vertices shared by the two triangles of each face; different cube faces may use separate UV regions and materials. Unsupported shapes retain their original geometry and report a warning when baked.
 
 Rounding changes terrain mesh generation, not the stored voxel IDs or box collision AABBs. Rounded previews are not implemented yet; static model previews currently show the original model. After changing this property at runtime, bake the library and remesh affected terrain.
 

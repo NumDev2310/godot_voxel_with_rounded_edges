@@ -114,6 +114,11 @@ Rounded previews are not implemented yet: the Inspector currently shows the orig
 model. Check the result in generated terrain, where the surrounding voxels determine
 which edges are exposed.
 
+Bevel cross-sections use two angular segments. Subdivision along an edge depends on
+its corner and taper transitions. Baked shape geometry is shared across enabled
+models in the same library; UV and tangent mappings are shared when their source
+face data matches. Each terrain chunk still has its own output mesh.
+
 Rounding adds triangles to the terrain mesh. Mesh-based collisions follow the rounded
 geometry, while `VoxelBoxMover` continues to use the model's box collision shapes.
 If a library is shared by multiple terrains, make its resources unique before changing

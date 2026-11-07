@@ -151,13 +151,13 @@ inline StdVector<Face> planes(uint64_t shape, const Settings &s) {
 		V c{ .5, .5, .5 };
 		c[e.a] = e.sa < 0 ? s.radius : 1 - s.radius;
 		c[e.b] = e.sb < 0 ? s.radius : 1 - s.radius;
-		for (int segment = 0; segment < 4; ++segment) {
-			const double angle = (segment + .5) * PI / 8;
+		for (int segment = 0; segment < 2; ++segment) {
+			const double angle = (segment + .5) * PI / 4;
 			V n{};
 			n[e.a] = e.sa * std::cos(angle);
 			n[e.b] = e.sb * std::sin(angle);
-			const int f = segment < 2 ? side(e.a, e.sa) : side(e.b, e.sb);
-			cuts.push_back({ n, dot(n, c) + s.radius * std::cos(PI / 16), int(i), f, c, {} });
+			const int f = segment < 1 ? side(e.a, e.sa) : side(e.b, e.sb);
+			cuts.push_back({ n, dot(n, c) + s.radius * std::cos(PI / 8), int(i), f, c, {} });
 		}
 	}
 	return cuts;
@@ -361,6 +361,7 @@ inline bool triangulate(const P &p, V n, StdVector<std::array<int, 3>> &out) {
 	out.push_back({ order[0], order[1], order[2] });
 	return true;
 }
+
 inline Mesh generate_legacy(uint64_t shape, const Settings &settings) {
 	// Below the inspector's minimum step, float mesh coordinates cannot retain
 	// the thinnest taper triangles reliably. Resolve these values to a cube.
@@ -628,7 +629,7 @@ inline void sample_connected_interval(
 		const double t = a + (b - a) * f;
 		error = std::max(error, std::abs(connected_radius(shape, index, ce, t, s).value - (ra + (rb - ra) * f)));
 	}
-	if (depth < 6 && error > s.radius * .008) {
+	if (depth < 6 && error > s.radius * 0.02) {
 		const double mid = (a + b) * .5;
 		sample_connected_interval(ce, shape, index, a, mid, s, depth + 1);
 		sample_connected_interval(ce, shape, index, mid, b, s, depth + 1);
@@ -708,8 +709,8 @@ inline P connected_face_corner(
 		if (e.along == axis) {
 			P arc;
 			const int outgoing_fixed = 3 - axis - incoming_fixed;
-			for (int j = 0; j <= 4; ++j) {
-				const double angle = j * PI / 8;
+			for (int j = 0; j <= 2; ++j) {
+				const double angle = j * PI / 4;
 				d[incoming_fixed] = radius * (1 - std::cos(angle));
 				d[outgoing_fixed] = radius * (1 - std::sin(angle));
 				arc.push_back(corner_point(c, d));
@@ -766,13 +767,13 @@ inline Mesh generate_connected(uint64_t shape, const Settings &s) {
 		const Edge e = edge(i);
 		const auto &ce = edges[i];
 		for (size_t j = 1; j < ce.stations.size(); ++j)
-			for (int segment = 0; segment < 4; ++segment) {
+			for (int segment = 0; segment < 2; ++segment) {
 				P points, normals;
 				for (auto pair : { std::pair<size_t, int>{ j - 1, segment },
 								   { j, segment },
 								   { j, segment + 1 },
 								   { j - 1, segment + 1 } }) {
-					const double t = ce.stations[pair.first], angle = pair.second * PI / 8;
+					const double t = ce.stations[pair.first], angle = pair.second * PI / 4;
 					const double ca = std::cos(angle), cb = std::sin(angle);
 					const Factor radius = connected_radius(shape, i, ce, t, s);
 					V p{}, n{};
@@ -786,7 +787,7 @@ inline Mesh generate_connected(uint64_t shape, const Settings &s) {
 					points.push_back(key(p));
 					normals.push_back(norm(n));
 				}
-				const int source = segment < 2 ? side(e.a, e.sa) : side(e.b, e.sb);
+				const int source = segment < 1 ? side(e.a, e.sa) : side(e.b, e.sb);
 				if (!append_corner_polygon(mesh, vertices, points, normals, source, false)) {
 					mesh.valid = false;
 					return mesh;
@@ -794,32 +795,29 @@ inline Mesh generate_connected(uint64_t shape, const Settings &s) {
 			}
 	}
 	for (const Corner &c : corners) {
-		// Three material-consistent spherical patches. tan(angle) ensures their
-		// boundary samples exactly match the four-segment circular bevels.
+		// Three material-consistent spherical patches. Their boundary samples
+		// match the two-segment quarter-circle bevels, including bottom corners.
 		for (int axis = 0; axis < 3; ++axis) {
 			const int a = (axis + 1) % 3, b = (axis + 2) % 3;
-			for (int i = 0; i < 2; ++i)
-				for (int j = 0; j < 2; ++j) {
-					P points, normals;
-					for (auto ij : { std::pair<int, int>{ i, j }, { i + 1, j }, { i + 1, j + 1 }, { i, j + 1 } }) {
-						V radial{};
-						radial[axis] = 1;
-						radial[a] = std::tan(ij.first * PI / 8);
-						radial[b] = std::tan(ij.second * PI / 8);
-						radial = norm(radial);
-						V d{}, n{};
-						for (int k = 0; k < 3; ++k) {
-							d[k] = cap_radius * (1 - radial[k]);
-							n[k] = c.signs[k] * radial[k];
-						}
-						points.push_back(corner_point(c, d));
-						normals.push_back(n);
-					}
-					if (!append_corner_polygon(mesh, vertices, points, normals, side(axis, c.signs[axis]), false)) {
-						mesh.valid = false;
-						return mesh;
-					}
+			P points, normals;
+			for (auto ij : { std::pair<int, int>{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } }) {
+				V radial{};
+				radial[axis] = 1;
+				radial[a] = std::tan(ij.first * PI / 4);
+				radial[b] = std::tan(ij.second * PI / 4);
+				radial = norm(radial);
+				V d{}, n{};
+				for (int k = 0; k < 3; ++k) {
+					d[k] = cap_radius * (1 - radial[k]);
+					n[k] = c.signs[k] * radial[k];
 				}
+				points.push_back(corner_point(c, d));
+				normals.push_back(n);
+			}
+			if (!append_corner_polygon(mesh, vertices, points, normals, side(axis, c.signs[axis]), false)) {
+				mesh.valid = false;
+				return mesh;
+			}
 		}
 	}
 	return mesh;

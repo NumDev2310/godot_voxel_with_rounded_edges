@@ -1,4 +1,5 @@
 #include "voxel_blocky_library_base.h"
+#include "blocky_round_mapping.h"
 #include "../../util/containers/container_funcs.h"
 #include "../../util/containers/small_vector.h"
 #include "../../util/math/box2f.h"
@@ -72,6 +73,7 @@ void VoxelBlockyLibraryBase::bake_rounding_geometry() {
 			{ _baked_data.rounding_amount, _baked_data.rounding_taper_distance, _baked_data.rounding_taper_profile },
 			enabled
 	);
+	blocky::bake_rounding_mappings(_baked_data);
 }
 
 void VoxelBlockyLibraryBase::load_default() {

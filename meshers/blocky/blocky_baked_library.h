@@ -122,6 +122,7 @@ struct BakedModel {
 	bool culls_neighbors;
 	bool contributes_to_ao;
 	bool empty = true;
+	uint32_t rounding_mapping_index = UINT32_MAX;
 	bool rounding_enabled = false;
 	bool rounding_affects_neighbors = true;
 	bool is_full_cube = false;
@@ -139,6 +140,7 @@ struct BakedModel {
 	inline void clear() {
 		model.clear();
 		empty = true;
+		rounding_mapping_index = UINT32_MAX;
 		rounding_enabled = false;
 		rounding_affects_neighbors = true;
 		is_full_cube = false;
@@ -172,9 +174,17 @@ struct BakedFluid {
 	// uint32_t box_collision_mask = 0;
 };
 
+// UVs and transported tangents depend on the original model face. Equal face
+// descriptors share one mapping array, independently of materials and colors.
+struct RoundedVertexMapping {
+	Vector2f uv;
+	FixedArray<float, 4> tangent;
+};
+
 struct BakedLibrary {
 	// Shared by meshing readers; rebuilt only while holding the library write lock.
 	round_geometry::GeometryTable rounding_geometry;
+	StdVector<StdVector<RoundedVertexMapping>> rounding_vertex_mappings;
 	float rounding_amount = 0.1f;
 	float rounding_taper_distance = 0.4f;
 	// Matches VoxelBlockyLibraryBase::RoundingTaperProfile.

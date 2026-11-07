@@ -1,5 +1,6 @@
 #include "blocky_round_geometry_table.h"
 #include "blocky_round_geometry.h"
+#include <cstring>
 
 namespace zylann::voxel::blocky::round_geometry {
 namespace {
@@ -56,6 +57,7 @@ bool GeometryTable::update(const Settings &settings, bool enabled) {
 	if (!enabled || settings.radius < .001) {
 		const bool changed = !_entries.empty();
 		StdVector<Entry>().swap(_entries);
+		StdVector<Vertex>().swap(_vertices);
 		_settings = settings;
 		return changed;
 	}
@@ -66,19 +68,38 @@ bool GeometryTable::update(const Settings &settings, bool enabled) {
 	const StdVector<uint64_t> keys = generate_reachable_shape_keys();
 	StdVector<Entry> entries;
 	entries.reserve(keys.size());
+	StdVector<Vertex> vertices;
+	StdMap<std::array<uint64_t, 10>, uint32_t> vertex_ids;
 	for (uint64_t shape : keys) {
-		Mesh mesh = generate(shape, settings);
-		// Bake-time scratch capacity need not be retained by every library.
-		mesh.vertices.shrink_to_fit();
+		Mesh generated = generate(shape, settings);
+		IndexedMesh mesh;
+		mesh.valid = generated.valid;
+		mesh.vertices.reserve(generated.vertices.size());
+		for (const Vertex &v : generated.vertices) {
+			const std::array<double, 10> values{ v.p[0], v.p[1],		v.p[2],		   v.n[0],		  v.n[1],
+												 v.n[2], v.source_p[0], v.source_p[1], v.source_p[2], double(v.face) };
+			std::array<uint64_t, 10> key;
+			// Preserve signed zeros as well as every other bit; no quantization or
+			// approximate welding is allowed across UV and normal seams.
+			static_assert(sizeof(key) == sizeof(values));
+			std::memcpy(key.data(), values.data(), sizeof(key));
+			const auto result = vertex_ids.emplace(key, uint32_t(vertices.size()));
+			if (result.second)
+				vertices.push_back(v);
+			mesh.vertices.push_back(result.first->second);
+		}
+		mesh.triangles = std::move(generated.triangles);
 		mesh.triangles.shrink_to_fit();
 		entries.push_back({ shape, std::move(mesh) });
 	}
+	vertices.shrink_to_fit();
 	_entries.swap(entries);
+	_vertices.swap(vertices);
 	_settings = settings;
 	return true;
 }
 
-const Mesh *GeometryTable::get(uint64_t shape) const {
+const IndexedMesh *GeometryTable::get(uint64_t shape) const {
 	const auto it = std::lower_bound(_entries.begin(), _entries.end(), shape, [](const Entry &entry, uint64_t key) {
 		return entry.shape < key;
 	});
@@ -86,9 +107,9 @@ const Mesh *GeometryTable::get(uint64_t shape) const {
 }
 
 size_t GeometryTable::get_storage_bytes() const {
-	size_t bytes = _entries.capacity() * sizeof(Entry);
+	size_t bytes = _entries.capacity() * sizeof(Entry) + _vertices.capacity() * sizeof(Vertex);
 	for (const Entry &entry : _entries) {
-		bytes += entry.mesh.vertices.capacity() * sizeof(Vertex);
+		bytes += entry.mesh.vertices.capacity() * sizeof(uint32_t);
 		bytes += entry.mesh.triangles.capacity() * sizeof(Triangle);
 	}
 	return bytes;
